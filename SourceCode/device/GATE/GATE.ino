@@ -41,6 +41,9 @@ const unsigned long OCR_TIMEOUT = 10000;  // 10 giây timeout cho OCR
 String currentDirection = "";  // "in" hoặc "out"
 bool vehiclePassing = false;  // Xe đang đi qua cổng
 String passingDirection = "";  // Hướng xe đang đi
+bool waitingForPosition = false;  // Đang đợi xe vào vị trí
+unsigned long positionWaitStartTime = 0;
+const unsigned long POSITION_WAIT_TIME = 3000;  // 3 giây đợi xe vào vị trí
 
 // Manual Gate Queue
 volatile bool manualGateRequested = false;
@@ -103,15 +106,30 @@ void manualGateTask(void* parameter) {
         
         // Tím = Manual Override
         setRGB_Purple();
+        vTaskDelay(pdMS_TO_TICKS(500));  // Delay để thấy tím
         
-        // Reset waiting state nếu đang chờ OCR
-        if (waitingForOCR) {
-          Serial.println("[SYSTEM] Cancelling pending OCR operation");
-          waitingForOCR = false;
+        // Reset tất cả các flag
+        waitingForOCR = false;
+        waitingForPosition = false;
+        vehiclePassing = false;
+        passingDirection = "";
+        currentDirection = "manual";
+        
+        Serial.println("[MANUAL] All flags reset");
+        
+        // Kiểm tra servo
+        if (!gateServo.attached()) {
+          Serial.println("[MANUAL] WARNING Servo not attached, Re-attaching");
+          gateServo.attach(SERVO_PIN);
+          vTaskDelay(pdMS_TO_TICKS(100));
         }
         
-        // Mở cổng ngay lập tức
-        openGate();
+        // Mở cổng trực tiếp
+        Serial.println("[MANUAL] Opening gate");
+        gateServo.write(SERVO_OPEN_ANGLE);
+        gateOpen = true;
+        gateOpenTime = millis();
+        setRGB_Blue();
         
         // Gửi log về server
         String message = "{\"source\":\"manual\",\"direction\":\"manual\",\"override\":true}";
@@ -120,8 +138,36 @@ void manualGateTask(void* parameter) {
           Serial.println("[MQTT] Manual override logged to server");
         }
         
+        // Đợi 5 giây
+        Serial.println("[MANUAL] Gate open for 5 seconds");
+        for (int i = 5; i > 0; i--) {
+          Serial.print("[MANUAL] Closing in ");
+          Serial.print(i);
+          Serial.println(" seconds");
+          vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+        
+        // Đóng cổng trực tiếp
+        Serial.println("[MANUAL] Closing gate");
+        gateServo.write(SERVO_CLOSED_ANGLE);
+        gateOpen = false;
+        
+        // Reset về sẵn sàng
+        setRGB_Green();
+        Serial.println("[MANUAL] LED set to GREEN");
+        Serial.println("[MANUAL] Manual operation complete - System ready");
+        
+        // Gửi status closed
+        if (mqtt.connected()) {
+          String statusMsg = "{\"status\":\"closed\",\"direction\":\"manual\"}";
+          mqtt.publish(TOPIC_GATE_STATUS, statusMsg.c_str());
+        }
+        
         // Release mutex
         xSemaphoreGive(gateMutex);
+        Serial.println("[MANUAL] Mutex released\n");
+      } else {
+        Serial.println("[MANUAL] ERROR Failed to acquire mutex!");
       }
     }
     
@@ -193,7 +239,7 @@ void setup() {
 void loop() {
   // Kiểm tra kết nối WiFi
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\n[WIFI] ERROR WiFi disconnected! Reconnecting");
+    Serial.println("\n[WIFI] ERROR WiFi disconnected, Reconnecting");
     setRGB_Red();  // Đỏ khi mất WiFi
     connectWiFi();
     if (WiFi.status() == WL_CONNECTED) {
@@ -213,15 +259,13 @@ void loop() {
     if (currentTime - lastIRInTime > debounceDelay) {
       lastIRInTime = currentTime;
       
-      // Nếu xe đang đi RA (đã qua OUT), khi qua IN thì hoàn tất
+      // Nếu xe đang đi RA qua OUT, khi qua IN thì hoàn tất
       if (vehiclePassing && passingDirection == "out") {
         Serial.println("[SENSOR] Vehicle passed IN sensor - EXIT complete");
-        vehiclePassing = false;
-        passingDirection = "";
-        setRGB_Green();  // Sẵn sàng cho lần tiếp theo
+        closeGate();  // Đóng cổng ngay khi xe qua
       }
       // Chỉ trigger camera khi không có xe nào đang đi qua
-      else if (!waitingForOCR && !vehiclePassing) {
+      else if (!waitingForOCR && !vehiclePassing && !waitingForPosition) {
         handleVehicleDetected("in");
       }
     }
@@ -233,18 +277,23 @@ void loop() {
     if (currentTime - lastIROutTime > debounceDelay) {
       lastIROutTime = currentTime;
       
-      // Nếu xe đang đi VÀO (đã qua IN), khi qua OUT thì hoàn tất
+      // Nếu xe đang đi VÀO qua IN, khi qua OUT thì hoàn tất
       if (vehiclePassing && passingDirection == "in") {
         Serial.println("[SENSOR] Vehicle passed OUT sensor - ENTRY complete");
-        vehiclePassing = false;
-        passingDirection = "";
-        setRGB_Green();  // Sẵn sàng cho lần tiếp theo
+        closeGate();  // Đóng cổng ngay khi xe qua
       }
       // Chỉ trigger camera khi không có xe nào đang đi qua
-      else if (!waitingForOCR && !vehiclePassing) {
+      else if (!waitingForOCR && !vehiclePassing && !waitingForPosition) {
         handleVehicleDetected("out");
       }
     }
+  }
+  
+  // Kiểm tra xe đã vào vị trí chưa
+  if (waitingForPosition && (millis() - positionWaitStartTime >= POSITION_WAIT_TIME)) {
+    Serial.println("[SYSTEM] Vehicle positioned, triggering camera");
+    waitingForPosition = false;
+    triggerCamera();
   }
   
   // Kiểm tra timeout OCR 
@@ -259,11 +308,6 @@ void loop() {
     setRGB_Green();
     
     publishGateStatus("timeout");
-  }
-  
-  // Tự động đóng cổng sau thời gian
-  if (gateOpen && (millis() - gateOpenTime > GATE_OPEN_DURATION)) {
-    closeGate();
   }
   
   delay(10);
@@ -364,17 +408,25 @@ void handleVehicleDetected(String direction) {
   Serial.print("Direction: ");
   Serial.println(direction == "in" ? "ENTRANCE" : "EXIT");
   
-  // RGB LED: Vàng = Waiting OCR
+  // RGB LED: Vàng = Waiting for position
   setRGB_Yellow();
   
-  // Lưu hướng hiện tại
+  // Bắt đầu đợi xe vào vị trí (non-blocking)
+  Serial.println("[SYSTEM] Waiting 3s for vehicle to position");
   currentDirection = direction;
-  waitingForOCR = true;
-  ocrWaitStartTime = millis();  // Bắt đầu đếm timeout
-  
+  waitingForPosition = true;
+  positionWaitStartTime = millis();
+}
+
+void triggerCamera() {
   // Gửi trigger chụp ảnh đến CAM
-  String topic = (direction == "in") ? TOPIC_TRIGGER_CAM_IN : TOPIC_TRIGGER_CAM_OUT;
-  String message = "{\"trigger\":true,\"direction\":\"" + direction + "\"}";
+  Serial.println("[SYSTEM] Triggering camera");
+  
+  waitingForOCR = true;
+  ocrWaitStartTime = millis();
+  
+  String topic = (currentDirection == "in") ? TOPIC_TRIGGER_CAM_IN : TOPIC_TRIGGER_CAM_OUT;
+  String message = "{\"trigger\":true,\"direction\":\"" + currentDirection + "\"}";
   
   if (mqtt.publish(topic.c_str(), message.c_str())) {
     Serial.println("[MQTT] Trigger sent to CAM");
@@ -397,9 +449,11 @@ void handleGateCommand(String message) {
   Serial.print("  waitingForOCR state: ");
   Serial.println(waitingForOCR ? "TRUE" : "FALSE");
   
-  // Kiểm tra lệnh manual từ MONITOR
-  if (message.indexOf("\"manual\"") > 0 && message.indexOf("\"source\":\"manual\"") > 0) {
-    Serial.println("[MQTT] Manual override command received");
+  // Kiểm tra lệnh manual - check nhiều format
+  if ((message.indexOf("\"manual\": true") > 0) ||   // có dấu cách
+      (message.indexOf("\"manual\":true") > 0) ||     // không dấu cách
+      (message.indexOf("\"source\":\"manual\"") > 0)) {
+    Serial.println("[MQTT] Manual override command detected");
     manualGateRequested = true;  // Set flag cho task xử lý
     return;
   }
@@ -413,6 +467,8 @@ void handleGateCommand(String message) {
   } else if (message.indexOf("\"reject\"") > 0) {
     Serial.println("[SYSTEM] OCR Failed");
     waitingForOCR = false;
+    vehiclePassing = false;  // Reset để cho phép trigger lại
+    passingDirection = "";
     
     setRGB_Blink(255, 0, 0, 3);  // Red blink = Rejected
     setRGB_Green();
@@ -464,10 +520,17 @@ void closeGate() {
     gateServo.write(SERVO_CLOSED_ANGLE);
     gateOpen = false;
     
+    // Reset các flags
+    waitingForOCR = false;
+    waitingForPosition = false;
+    vehiclePassing = false;
+    passingDirection = "";
+    currentDirection = "";
+    
     // Xanh lá = Ready
     setRGB_Green();
     
-    Serial.println("[GATE] SUCCESS Gate closed"); 
+    Serial.println("[GATE] SUCCESS Gate closed - System ready"); 
     publishGateStatus("closed");
   }
 }

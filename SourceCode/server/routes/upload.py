@@ -108,8 +108,14 @@ async def upload_image(
                 # Low confidence - xóa ảnh temp
                 print("[ARCHIVE] Low confidence")
                 try:
-                    os.remove(temp_path)
-                    print("[CLEANUP] Temp file deleted")
+                    # os.remove(temp_path)
+                    # print("[CLEANUP] Temp file deleted")
+                    archive_filename = f"{timestamp}.jpg"
+                    archive_path = os.path.join(settings.TEMP_DIR, archive_filename)
+                
+                    shutil.move(temp_path, archive_path)
+                    print(f"[TEMP] Moved to archive: {archive_path}")
+
                 except Exception as e:
                     print(f"[CLEANUP] Cannot delete temp: {e}")
                 

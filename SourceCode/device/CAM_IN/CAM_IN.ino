@@ -232,7 +232,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     // Chụp và upload ảnh
     captureAndUpload();
   } else {
-    Serial.println("[MQTT] ERROR Ignoring non-ENTRANCE trigger");
+    Serial.println("[MQTT] ERROR Ignoring non-ENTRY trigger");
   }
 }
 
@@ -285,18 +285,18 @@ bool initCamera() {
   // Tối ưu hóa sensor 
   sensor_t *s = esp_camera_sensor_get();
   if (s != NULL) {
-    s->set_brightness(s, -1);      // -2 to 2 (-1 = giảm độ sáng)
-    s->set_contrast(s, 1);         // -2 to 2 (tăng contrast cho rõ nét)
+    s->set_brightness(s, -2);      // -2 to 2 (-2 = giảm độ sáng MAX)
+    s->set_contrast(s, 2);         // -2 to 2 (tăng contrast MAX)
     s->set_saturation(s, 0);       // -2 to 2 (giữ màu tự nhiên)
     s->set_sharpness(s, 2);        // -2 to 2 (MAX sharpness cho OCR)
     s->set_denoise(s, 0);          // 0 to 8 (TẮT denoise để giữ chi tiết)
     s->set_special_effect(s, 0);   // 0 = no effect
     s->set_wb_mode(s, 1);          // 0=auto, 1=sunny (cho ánh sáng nhân tạo)
-    s->set_ae_level(s, -1);        // -2 to 2 (-1 = giảm auto exposure)
-    s->set_aec_value(s, 200);      // 0 to 1200 (giảm exposure từ 300 xuống 200)
+    s->set_ae_level(s, -2);        // -2 to 2 (-2 = giảm auto exposure MAX)
+    s->set_aec_value(s, 150);      // 0 to 1200 (giảm exposure xuống 150)
     s->set_gain_ctrl(s, 1);        // 1 = auto gain
     s->set_agc_gain(s, 0);         // 0 to 30 (auto)
-    s->set_gainceiling(s, (gainceiling_t)2);  // 0 to 6 (giảm gain ceiling từ 3 xuống 2)
+    s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6 (giảm gain ceiling xuống 0)
     s->set_bpc(s, 1);              // Black pixel correction ON
     s->set_wpc(s, 1);              // White pixel correction ON
     s->set_raw_gma(s, 1);          // Gamma correction ON
@@ -325,7 +325,7 @@ void captureAndUpload() {
   
   // Bật flash
   digitalWrite(FLASH_LED, HIGH);
-  delay(150);  
+  delay(100);  // Giảm từ 150ms xuống 100ms
   
   // Chụp ảnh
   Serial.println("[CAMERA] Capturing image");

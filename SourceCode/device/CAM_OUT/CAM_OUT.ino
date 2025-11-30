@@ -181,6 +181,7 @@ void connectMQTT() {
 
     String clientId = "ESP32_CAM_" + mac;
     
+    // Kết nối MQTT với username và password
     if (mqtt.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println("[MQTT] SUCCESS Connected");
       
@@ -190,7 +191,6 @@ void connectMQTT() {
       Serial.println("[MQTT] Subscribed to:");
       Serial.print("  - ");
       Serial.println(TOPIC_TRIGGER_OUT);
-      Serial.println("  (EXIT/OUT camera only)");
       
       return;  
       
