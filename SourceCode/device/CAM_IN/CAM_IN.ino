@@ -383,14 +383,19 @@ bool uploadToServer(camera_fb_t *fb) {
   // Tạo boundary cho multipart
   String boundary = "----ESP32CAM" + String(millis());
   
-  // Tạo header
+  // Tạo header với direction
   String head = "--" + boundary + "\r\n";
   head += "Content-Disposition: form-data; name=\"file\"; filename=\"capture.jpg\"\r\n";
   head += "Content-Type: image/jpeg\r\n\r\n";
   
+  // Thêm direction field
+  String directionField = "\r\n--" + boundary + "\r\n";
+  directionField += "Content-Disposition: form-data; name=\"direction\"\r\n\r\n";
+  directionField += currentDirection;
+  
   String tail = "\r\n--" + boundary + "--\r\n";
   
-  uint32_t totalLen = head.length() + fb->len + tail.length();
+  uint32_t totalLen = head.length() + fb->len + directionField.length() + tail.length();
   
   // Gửi HTTP request
   client.println("POST " + String(uploadEndpoint) + " HTTP/1.1");
@@ -432,6 +437,9 @@ bool uploadToServer(camera_fb_t *fb) {
   
   unsigned long upload_time = millis() - upload_start;
   Serial.printf("[WIFI_CLIENT] Done! (%lu ms)\n", upload_time);
+  
+  // Gửi direction field
+  client.print(directionField);
   
   // Gửi tail
   client.print(tail);

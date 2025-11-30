@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, UploadFile, Depends
+from fastapi import APIRouter, File, UploadFile, Form, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -25,13 +25,18 @@ async def test_upload():
     }
 
 @router.post("/upload-image")
-async def upload_image(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_image(
+    file: UploadFile = File(...), 
+    direction: str = Form("in"),
+    db: Session = Depends(get_db)
+):
     
     # ESP32 gửi POST request với multipart/form-data
     print(f"\n{'='*50}")
     print(f"[UPLOAD] NEW REQUEST RECEIVED")
     print(f"[UPLOAD] Filename: {file.filename}")
     print(f"[UPLOAD] Content-Type: {file.content_type}")
+    print(f"[UPLOAD] Direction: {direction}")
     
     try:
         # Đọc nội dung ảnh
@@ -113,17 +118,20 @@ async def upload_image(file: UploadFile = File(...), db: Session = Depends(get_d
             # Lưu vào database khi thành công
             if final_path:
                 try:
+                    # Xác định action dựa vào direction
+                    action = "entry" if direction == "in" else "exit"
+                    
                     log = VehicleLog(
                         license_plate=plate,
                         image_path=final_path,
                         ocr_result=json.dumps(result),
                         confidence=str(confidence),
-                        action="entry"
+                        action=action
                     )
                     db.add(log)
                     db.commit()
                     db.refresh(log)
-                    print(f"[DATABASE] SUCCESS Saved (ID: {log.id})")
+                    print(f"[DATABASE] SUCCESS Saved (ID: {log.id}, Action: {action})")
                 except Exception as db_error:
                     print(f"[DATABASE] Error: {db_error}")
             else:

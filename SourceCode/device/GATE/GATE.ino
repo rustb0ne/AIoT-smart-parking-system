@@ -39,6 +39,8 @@ bool waitingForOCR = false;
 unsigned long ocrWaitStartTime = 0;
 const unsigned long OCR_TIMEOUT = 10000;  // 10 giây timeout cho OCR
 String currentDirection = "";  // "in" hoặc "out"
+bool vehiclePassing = false;  // Xe đang đi qua cổng
+String passingDirection = "";  // Hướng xe đang đi
 
 // Manual Gate Queue
 volatile bool manualGateRequested = false;
@@ -205,21 +207,43 @@ void loop() {
   }
   mqtt.loop();
   
-  // Kiểm tra cảm biến IR vào khi không đang chờ OCR
-  if (digitalRead(IR_SENSOR_IN) == LOW && !waitingForOCR) {
+  // Kiểm tra cảm biến IR vào
+  if (digitalRead(IR_SENSOR_IN) == LOW) {
     unsigned long currentTime = millis();
     if (currentTime - lastIRInTime > debounceDelay) {
       lastIRInTime = currentTime;
-      handleVehicleDetected("in");
+      
+      // Nếu xe đang đi RA (đã qua OUT), khi qua IN thì hoàn tất
+      if (vehiclePassing && passingDirection == "out") {
+        Serial.println("[SENSOR] Vehicle passed IN sensor - EXIT complete");
+        vehiclePassing = false;
+        passingDirection = "";
+        setRGB_Green();  // Sẵn sàng cho lần tiếp theo
+      }
+      // Chỉ trigger camera khi không có xe nào đang đi qua
+      else if (!waitingForOCR && !vehiclePassing) {
+        handleVehicleDetected("in");
+      }
     }
   }
   
-  // Kiểm tra cảm biến IR ra khi không đang chờ OCR
-  if (digitalRead(IR_SENSOR_OUT) == LOW && !waitingForOCR) {
+  // Kiểm tra cảm biến IR ra
+  if (digitalRead(IR_SENSOR_OUT) == LOW) {
     unsigned long currentTime = millis();
     if (currentTime - lastIROutTime > debounceDelay) {
       lastIROutTime = currentTime;
-      handleVehicleDetected("out");
+      
+      // Nếu xe đang đi VÀO (đã qua IN), khi qua OUT thì hoàn tất
+      if (vehiclePassing && passingDirection == "in") {
+        Serial.println("[SENSOR] Vehicle passed OUT sensor - ENTRY complete");
+        vehiclePassing = false;
+        passingDirection = "";
+        setRGB_Green();  // Sẵn sàng cho lần tiếp theo
+      }
+      // Chỉ trigger camera khi không có xe nào đang đi qua
+      else if (!waitingForOCR && !vehiclePassing) {
+        handleVehicleDetected("out");
+      }
     }
   }
   
@@ -227,6 +251,8 @@ void loop() {
   if (waitingForOCR && (millis() - ocrWaitStartTime > OCR_TIMEOUT)) {
     Serial.println("\n[SYSTEM] OCR TIMEOUT, Return to ready state");
     waitingForOCR = false;
+    vehiclePassing = false;  // Reset trạng thái xe đang đi qua
+    passingDirection = "";
     
     // Reset RGB LED về trạng thái sẵn sàng
     setRGB_Blink(255, 0, 0, 3);  // Red blink = Timeout
@@ -412,6 +438,12 @@ void openGate() {
     gateOpen = true;
     gateOpenTime = millis();
     
+    // Đánh dấu xe đang đi qua
+    vehiclePassing = true;
+    passingDirection = currentDirection;
+    Serial.print("[SYSTEM] Vehicle passing - Direction: ");
+    Serial.println(passingDirection);
+    
     // Xanh dương = Gate Open
     setRGB_Blue();
     
@@ -420,7 +452,7 @@ void openGate() {
  
     publishGateStatus("open");
   } else {
-    Serial.println("[GAT] already open, resetting timer");
+    Serial.println("[GATE] already open, resetting timer");
     gateOpenTime = millis();  // Reset timer
   }
 }
