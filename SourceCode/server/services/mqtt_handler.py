@@ -7,6 +7,7 @@ class MQTTHandler:
     def __init__(self, on_slot_update=None):
         self.client = mqtt.Client()
         self.on_slot_update = on_slot_update
+        self.camera_frame_callback = None  # Callback cho camera frames
         
         # Callbacks
         self.client.on_connect = self._on_connect
@@ -86,3 +87,6 @@ class MQTTHandler:
         except Exception as e:
             print(f"[MQTT] Error publishing: {e}")
         return False
+
+# Global MQTT client instance
+mqtt_client = MQTTHandler()
