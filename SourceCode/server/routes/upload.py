@@ -114,7 +114,7 @@ async def upload_image(
                     archive_path = os.path.join(settings.TEMP_DIR, archive_filename)
                 
                     shutil.move(temp_path, archive_path)
-                    print(f"[TEMP] Moved to archive: {archive_path}")
+                    print(f"[TEMP] Moved to temp: {archive_path}")
 
                 except Exception as e:
                     print(f"[CLEANUP] Cannot delete temp: {e}")
