@@ -387,7 +387,7 @@ void setup() {
     pinMode(LED_STATUS_PIN, OUTPUT);
     
     digitalWrite(LED_OTA_PIN, LOW);
-    digitalWrite(LED_STATUS_PIN, HIGH);  // LED status
+    digitalWrite(LED_STATUS_PIN, LOW);  // LED status
     
     Serial.println("[SENSOR] SUCCESS Sensors initialized");
     

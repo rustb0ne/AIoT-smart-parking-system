@@ -80,10 +80,22 @@ class MQTTHandler:
         
         # Publish message
         try:
-            result = self.client.publish(topic, json.dumps(message))
-            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            # Check if client is connected
+            if not self.client.is_connected():
+                print(f"[MQTT] ERROR Client not connected")
+                return False
+            
+            result = self.client.publish(topic, json.dumps(message), qos=1)
+            
+            # Wait for publish to complete (timeout 2 seconds)
+            result.wait_for_publish(2.0)
+            
+            if result.rc == mqtt.MQTT_ERR_SUCCESS and result.is_published():
                 print(f"[MQTT] Published to {topic}: {message}")
                 return True
+            else:
+                print(f"[MQTT] Publish failed - rc: {result.rc}, published: {result.is_published()}")
+                return False
         except Exception as e:
             print(f"[MQTT] Error publishing: {e}")
         return False
